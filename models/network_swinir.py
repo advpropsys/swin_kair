@@ -11,8 +11,8 @@ import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 
 
-class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+class MLP(nn.Module):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.Mish, drop=0.):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -176,13 +176,13 @@ class SwinTransformerBlock(nn.Module):
         drop (float, optional): Dropout rate. Default: 0.0
         attn_drop (float, optional): Attention dropout rate. Default: 0.0
         drop_path (float, optional): Stochastic depth rate. Default: 0.0
-        act_layer (nn.Module, optional): Activation layer. Default: nn.GELU
+        act_layer (nn.Module, optional): Activation layer. Default: nn.Mish
         norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
     """
 
     def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+                 act_layer=nn.Mish, norm_layer=nn.LayerNorm):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
@@ -204,7 +204,7 @@ class SwinTransformerBlock(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.mlp = MLP(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
         if self.shift_size > 0:
             attn_mask = self.calculate_mask(self.input_resolution)
@@ -274,7 +274,7 @@ class SwinTransformerBlock(nn.Module):
 
         # FFN
         x = shortcut + self.drop_path(x)
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        x = x + self.drop_path(self.norm2(self.mlp(x)))
 
         return x
 
@@ -465,7 +465,8 @@ class RSTB(nn.Module):
             self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
         elif resi_connection == '3conv':
             # to save parameters and memory
-            self.conv = nn.Sequential(nn.Conv2d(dim, dim // 4, 3, 1, 1), nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            self.conv = nn.Sequential(nn.Conv2d(dim, dim // 4, 3, 1, 1), 
+                                      nn.LeakyReLU(negative_slope=0.2, inplace=True),
                                       nn.Conv2d(dim // 4, dim // 4, 1, 1, 0),
                                       nn.LeakyReLU(negative_slope=0.2, inplace=True),
                                       nn.Conv2d(dim // 4, dim, 3, 1, 1))
@@ -644,11 +645,11 @@ class SwinIR(nn.Module):
     """
 
     def __init__(self, img_size=64, patch_size=1, in_chans=3,
-                 embed_dim=96, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6],
+                 embed_dim=64, depths=[4, 4, 4, 4], num_heads=[4, 4, 4, 4],
                  window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
-                 use_checkpoint=False, upscale=2, img_range=1., upsampler='', resi_connection='1conv',
+                 use_checkpoint=False, upscale=4, img_range=1., upsampler='', resi_connection='1conv',
                  **kwargs):
         super(SwinIR, self).__init__()
         num_in_ch = in_chans
@@ -749,11 +750,11 @@ class SwinIR(nn.Module):
                                             (patches_resolution[0], patches_resolution[1]))
         elif self.upsampler == 'nearest+conv':
             # for real-world SR (less artifacts)
-            assert self.upscale == 4, 'only support x4 now.'
             self.conv_before_upsample = nn.Sequential(nn.Conv2d(embed_dim, num_feat, 3, 1, 1),
                                                       nn.LeakyReLU(inplace=True))
             self.conv_up1 = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
-            self.conv_up2 = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
+            if self.upscale == 4:
+                self.conv_up2 = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
             self.conv_hr = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
             self.conv_last = nn.Conv2d(num_feat, num_out_ch, 3, 1, 1)
             self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
@@ -805,7 +806,7 @@ class SwinIR(nn.Module):
     def forward(self, x):
         H, W = x.shape[2:]
         x = self.check_image_size(x)
-
+        
         self.mean = self.mean.type_as(x)
         x = (x - self.mean) * self.img_range
 
@@ -826,7 +827,8 @@ class SwinIR(nn.Module):
             x = self.conv_after_body(self.forward_features(x)) + x
             x = self.conv_before_upsample(x)
             x = self.lrelu(self.conv_up1(torch.nn.functional.interpolate(x, scale_factor=2, mode='nearest')))
-            x = self.lrelu(self.conv_up2(torch.nn.functional.interpolate(x, scale_factor=2, mode='nearest')))
+            if self.upscale == 4:
+                x = self.lrelu(self.conv_up2(torch.nn.functional.interpolate(x, scale_factor=2, mode='nearest')))
             x = self.conv_last(self.lrelu(self.conv_hr(x)))
         else:
             # for image denoising and JPEG compression artifact reduction
@@ -855,12 +857,11 @@ if __name__ == '__main__':
     window_size = 8
     height = (1024 // upscale // window_size + 1) * window_size
     width = (720 // upscale // window_size + 1) * window_size
-    model = SwinIR(upscale=2, img_size=(height, width),
-                   window_size=window_size, img_range=1., depths=[6, 6, 6, 6],
-                   embed_dim=60, num_heads=[6, 6, 6, 6], mlp_ratio=2, upsampler='pixelshuffledirect')
+    model = SwinIR(upscale=4, img_size=(height, width),
+                   window_size=window_size, img_range=1., depths=[3, 3, 3, 3],
+                   embed_dim=60, num_heads=[3, 3, 3, 3], mlp_ratio=1.5, upsampler='pixelshuffledirect')
     print(model)
     print(height, width, model.flops() / 1e9)
-
     x = torch.randn((1, 3, height, width))
     x = model(x)
     print(x.shape)
