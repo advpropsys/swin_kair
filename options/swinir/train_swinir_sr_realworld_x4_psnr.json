@@ -47,7 +47,7 @@
     , "window_size": 8
     , "img_range": 1.0
     , "depths": [4, 4, 4, 4, 4, 4]
-    , "embed_dim": 180
+    , "embed_dim": 140
     , "num_heads": [4, 4, 4, 4, 4, 4]
     , "mlp_ratio": 2
     , "upsampler": "nearest+conv"        // "pixelshuffle" | "pixelshuffledirect" | "nearest+conv" | null
