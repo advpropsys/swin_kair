@@ -28,7 +28,7 @@
 
       , "dataloader_shuffle": true
       , "dataloader_num_workers": 2
-      , "dataloader_batch_size": 16      // batch size 1 | 16 | 32 | 48 | 64 | 128. Total batch size =4x8=32 in SwinIR
+      , "dataloader_batch_size": 64      // batch size 1 | 16 | 32 | 48 | 64 | 128. Total batch size =4x8=32 in SwinIR
     }
     , "test": {
       "name": "test_dataset"            // just name
@@ -47,7 +47,7 @@
     , "window_size": 8
     , "img_range": 1.0
     , "depths": [4, 4, 4, 4, 4, 4]
-    , "embed_dim": 96
+    , "embed_dim": 180
     , "num_heads": [4, 4, 4, 4, 4, 4]
     , "mlp_ratio": 2
     , "upsampler": "nearest+conv"        // "pixelshuffle" | "pixelshuffledirect" | "nearest+conv" | null
@@ -80,6 +80,6 @@
 
     , "checkpoint_test": 5000           // for testing
     , "checkpoint_save": 5000           // for saving model
-    , "checkpoint_print": 1000         // for print
+    , "checkpoint_print": 200         // for print
   }
 }
